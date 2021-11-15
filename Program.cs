@@ -10,6 +10,8 @@ using Microsoft.Extensions.Configuration;
 using System.IO;
 using Discord.Rest;
 using Discord.WebSocket;
+using System.Globalization;
+using System.Threading;
 
 namespace DiscordCryptoSidebarBot // Note: actual namespace depends on the project name.
 {
@@ -17,6 +19,8 @@ namespace DiscordCryptoSidebarBot // Note: actual namespace depends on the proje
     {
         static async Task Main(string[] args)
         {
+            Thread.CurrentThread.CurrentCulture = new CultureInfo("en-US");
+
             using IHost host = CreateHostBuilder(args).Build();
 
             await host.RunAsync();
