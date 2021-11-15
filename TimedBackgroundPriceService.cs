@@ -13,6 +13,9 @@ using System.Threading.Tasks;
 using Discord.Rest;
 using Discord.WebSocket;
 using Discord;
+using System.Net;
+using System.Net.Http;
+using System.IO;
 
 namespace DiscordCryptoSidebarBot
 {
@@ -48,18 +51,56 @@ namespace DiscordCryptoSidebarBot
 
         public Task StartAsync(CancellationToken stoppingToken)
         {
+            ExecuteAsync().Wait();
+            return Task.CompletedTask;
+        }
+
+        private async Task ExecuteAsync()
+        {
             _logger.LogInformation("TimedBackgroundPriceService running.");
 
-            _coinList = _client.CoinsClient.GetCoinList().GetAwaiter().GetResult();
+            _coinList = await _client.CoinsClient.GetCoinList();
 
-            _discordRestClient.LoginAsync(TokenType.Bot, _settings.BotToken).GetAwaiter().GetResult();
-            _discordSocketClient.LoginAsync(TokenType.Bot, _settings.BotToken).GetAwaiter().GetResult();
-            _discordSocketClient.StartAsync().GetAwaiter().GetResult();
+
+            await _discordRestClient.LoginAsync(TokenType.Bot, _settings.BotToken);
+            await _discordSocketClient.LoginAsync(TokenType.Bot, _settings.BotToken);
+            await _discordSocketClient.StartAsync();
+
+            _discordSocketClient.Connected += DiscordSocketClientConnected;
 
             _timer = new Timer(DoWork, null, TimeSpan.Zero,
                 TimeSpan.FromSeconds(_settings.UpdateInterval));
+        }
 
-            return Task.CompletedTask;
+        private async Task DiscordSocketClientConnected()
+        {
+            var coinInfo = await _client.CoinsClient.GetAllCoinDataWithId(_settings.ApiId);
+
+            await SetLogo(coinInfo);
+        }
+
+        private async Task SetLogo(CoinFullDataById coinInfo)
+        {
+            var fileName = coinInfo.Image.Large.Segments.Last();
+            
+            //  Download Coin Logo
+            using (var client = new HttpClient())
+            {
+                var response = client.GetAsync(coinInfo.Image.Large).GetAwaiter().GetResult();
+                response.EnsureSuccessStatusCode();
+                var ms = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
+                var fs = File.Create(fileName);
+
+                ms.Seek(0, SeekOrigin.Begin);
+                ms.CopyTo(fs);
+                fs.Close();
+                ms.Close();
+            }
+
+            await _discordSocketClient.CurrentUser.ModifyAsync((p) =>
+            {
+                p.Avatar = new Optional<Image?>(new Image(fileName));
+            });
         }
 
         private static decimal? GetValue(Price price, string apiId, string field)
@@ -97,15 +138,52 @@ namespace DiscordCryptoSidebarBot
         {
             return value switch
             {
-                > 0 => "📈",
-                < 0 => "📉",
-                _ => "━"
+                >= 20 => "🔥",
+                >= 10 => "💪",
+                >= 5 => "🙂",
+                >= 0 => "📈",
+                <= -20 => "🤢",
+                <= -10 => "😢",
+                <= -5 => "🙃",
+                <= 0 => "📉",
+                _ => "😐"
             };
+        }
+
+        private static bool HasDecimal(decimal? value)
+        {
+            var val = value.ToString()!;
+
+            if (val.Contains("."))
+            {
+                var dec = val.Split('.');
+
+                if(dec[0] == "0" || dec[0] == "00")
+                {
+                    return false;
+                }
+
+                return true;
+            }
+
+            return false;
         }
 
         private static string RenderCurrency(decimal? value)
         {
-            return string.Format("{0:C}", value);
+            bool hasDecimal = HasDecimal(value);
+
+            if (value < 1)
+            {
+                return string.Format("{0:C4}", value);
+            }
+
+            if (hasDecimal)
+            {
+                return string.Format("{0:C}", value);
+            }
+
+            return string.Format("{0:C0}", value);
         }
 
         private static string RenderPercent(decimal? value)
@@ -156,7 +234,7 @@ namespace DiscordCryptoSidebarBot
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, null, null);
+                    _logger.LogError(ex, null!, null!);
                     Console.Error.WriteLine(ex);
                 }
             }
