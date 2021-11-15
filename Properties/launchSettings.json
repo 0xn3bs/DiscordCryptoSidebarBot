@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "DiscordCryptoSidebarBot": {
+      "commandName": "Project",
+      "commandLineArgs": "--updateInterval 30 --apiId [tokenapiidhere] --botToken [yourtokenhere]"
+    }
+  }
+}
