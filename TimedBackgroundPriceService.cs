@@ -61,7 +61,6 @@ namespace DiscordCryptoSidebarBot
 
             _coinList = await _client.CoinsClient.GetCoinList();
 
-
             await _discordRestClient.LoginAsync(TokenType.Bot, _settings.BotToken);
             await _discordSocketClient.LoginAsync(TokenType.Bot, _settings.BotToken);
             await _discordSocketClient.StartAsync();
@@ -82,14 +81,22 @@ namespace DiscordCryptoSidebarBot
         private async Task SetLogo(CoinFullDataById coinInfo)
         {
             var fileName = coinInfo.Image.Large.Segments.Last();
-            
+
+            if (!Directory.Exists("images"))
+            {
+                Directory.CreateDirectory("images");
+            }
+
+            var dir = Path.Combine("images", fileName);
+
             //  Download Coin Logo
             using (var client = new HttpClient())
             {
                 var response = client.GetAsync(coinInfo.Image.Large).GetAwaiter().GetResult();
                 response.EnsureSuccessStatusCode();
                 var ms = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
-                var fs = File.Create(fileName);
+
+                var fs = File.Create(dir);
 
                 ms.Seek(0, SeekOrigin.Begin);
                 ms.CopyTo(fs);
@@ -99,7 +106,7 @@ namespace DiscordCryptoSidebarBot
 
             await _discordSocketClient.CurrentUser.ModifyAsync((p) =>
             {
-                p.Avatar = new Optional<Image?>(new Image(fileName));
+                p.Avatar = new Optional<Image?>(new Image(dir));
             });
         }
 
@@ -148,7 +155,7 @@ namespace DiscordCryptoSidebarBot
                 >= 10 => "😁",
                 >= 7 => "😃",
                 >= 5 => "🙂",
-                >= 0 => "📈",
+                > 0 => "📈",
                 <= -80 => "☠️",
                 <= -50 => "😀🔫",
                 <= -40 => "🚽",
@@ -160,7 +167,8 @@ namespace DiscordCryptoSidebarBot
                 <= -10 => "🥺",
                 <= -7 => "😤",
                 <= -5 => "😅",
-                <= 0 => "📉",
+                < 0 => "📉",
+                0 => "😐",
                 _ => "😐"
             };
         }
