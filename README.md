@@ -1,7 +1,7 @@
 # Discord Crypto Sidebar Bot
 
 ## Pre-requisites:
-    .NET 6 see Step 2 [here](https://docs.microsoft.com/en-us/dotnet/iot/deployment).
+.NET 6 see Step 2 [here](https://docs.microsoft.com/en-us/dotnet/iot/deployment).
 
 ## How to use
 ### Build the project first using
