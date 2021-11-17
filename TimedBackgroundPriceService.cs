@@ -27,6 +27,7 @@ namespace DiscordCryptoSidebarBot
         private DiscordRestClient _discordRestClient = null!;
         private DiscordSocketClient _discordSocketClient = null!;
         private string _coinName = null!;
+        private bool _firstRun = false;
 
         private Timer _timer = null!;
 
@@ -58,9 +59,6 @@ namespace DiscordCryptoSidebarBot
         private async Task ExecuteAsync()
         {
             _logger.LogInformation("TimedBackgroundPriceService running.");
-
-            var coinlist = await _client.CoinsClient.GetCoinList();
-            _coinName = GetCoinNameFromApiId(coinlist, _settings.ApiId);
 
             await _discordRestClient.LoginAsync(TokenType.Bot, _settings.BotToken);
             await _discordSocketClient.LoginAsync(TokenType.Bot, _settings.BotToken);
@@ -217,6 +215,13 @@ namespace DiscordCryptoSidebarBot
 
         private void DoWork(object? state)
         {
+            if (_firstRun)
+            {
+                var coinlist = _client.CoinsClient.GetCoinList().GetAwaiter().GetResult();
+                _coinName = GetCoinNameFromApiId(coinlist, _settings.ApiId);
+                _firstRun = false;
+            }
+
             var price = _client.SimpleClient.GetSimplePrice(new string[] { _settings.ApiId }, new string[] { "usd" }, false, false, true, false).GetAwaiter().GetResult();
 
             var dollarValue = PriceToDollarValue(price, _settings.ApiId);
