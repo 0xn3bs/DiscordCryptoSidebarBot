@@ -24,9 +24,9 @@ namespace DiscordCryptoSidebarBot
         private readonly ILogger<TimedBackgroundPriceService> _logger;
         private readonly BotSettings _settings;
         private readonly ICoinGeckoClient _client;
-        private IReadOnlyList<CoinList> _coinList = null!;
         private DiscordRestClient _discordRestClient = null!;
         private DiscordSocketClient _discordSocketClient = null!;
+        private string _coinName = null!;
 
         private Timer _timer = null!;
 
@@ -59,7 +59,8 @@ namespace DiscordCryptoSidebarBot
         {
             _logger.LogInformation("TimedBackgroundPriceService running.");
 
-            _coinList = await _client.CoinsClient.GetCoinList();
+            var coinlist = await _client.CoinsClient.GetCoinList();
+            _coinName = GetCoinNameFromApiId(coinlist, _settings.ApiId);
 
             await _discordRestClient.LoginAsync(TokenType.Bot, _settings.BotToken);
             await _discordSocketClient.LoginAsync(TokenType.Bot, _settings.BotToken);
@@ -67,7 +68,7 @@ namespace DiscordCryptoSidebarBot
 
             _discordSocketClient.Connected += DiscordSocketClientConnected;
 
-            _timer = new Timer(DoWork, null, TimeSpan.Zero,
+            _timer = new Timer(DoWork, null, TimeSpan.FromSeconds(_settings.Delay),
                 TimeSpan.FromSeconds(_settings.UpdateInterval));
         }
 
@@ -220,9 +221,8 @@ namespace DiscordCryptoSidebarBot
 
             var dollarValue = PriceToDollarValue(price, _settings.ApiId);
             var percentChange = PriceToChangeLast24Hr(price, _settings.ApiId);
-            var name = GetCoinNameFromApiId(_coinList, _settings.ApiId);
 
-            var nickname = $"{name} {RenderCurrency(dollarValue)} {RenderDirection(percentChange)}";
+            var nickname = $"{_coinName} {RenderCurrency(dollarValue)} {RenderDirection(percentChange)}";
             var playing = $"$ 24h: {RenderPercent(percentChange)}";
 
             Console.WriteLine(nickname);
