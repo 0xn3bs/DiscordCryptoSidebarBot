@@ -27,7 +27,7 @@ namespace DiscordCryptoSidebarBot
         private DiscordRestClient _discordRestClient = null!;
         private DiscordSocketClient _discordSocketClient = null!;
         private string _coinName = null!;
-        private bool _firstRun = false;
+        private bool _firstRun = true;
 
         private Timer _timer = null!;
 
