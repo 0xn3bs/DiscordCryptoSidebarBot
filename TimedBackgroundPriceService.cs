@@ -26,6 +26,7 @@ namespace DiscordCryptoSidebarBot
         private readonly ICoinGeckoClient _client;
         private DiscordRestClient _discordRestClient = null!;
         private DiscordSocketClient _discordSocketClient = null!;
+        private EthGasService _ethGasService = null!;
         private string _coinName = null!;
         private bool _firstRun = true;
 
@@ -41,13 +42,19 @@ namespace DiscordCryptoSidebarBot
             public string Details { get; set; }
         }
 
-        public TimedBackgroundPriceService(ILogger<TimedBackgroundPriceService> logger, IOptions<BotSettings> settings, ICoinGeckoClient client, DiscordRestClient discordRestClient, DiscordSocketClient discordSocketClient)
+        public TimedBackgroundPriceService(ILogger<TimedBackgroundPriceService> logger, 
+            IOptions<BotSettings> settings, 
+            ICoinGeckoClient client, 
+            DiscordRestClient discordRestClient,
+            DiscordSocketClient discordSocketClient,
+            EthGasService ethGasService)
         {
             _logger = logger;
             _settings = settings.Value;
             _client = client;
             _discordRestClient = discordRestClient;
             _discordSocketClient = discordSocketClient;
+            _ethGasService = ethGasService;
         }
 
         public Task StartAsync(CancellationToken stoppingToken)
@@ -56,10 +63,18 @@ namespace DiscordCryptoSidebarBot
             return Task.CompletedTask;
         }
 
+        private bool InGasMode 
+        { 
+            get
+            {
+                return _settings.ApiId.ToLowerInvariant() == "ethgas";
+            }
+        }
+
         private async Task ExecuteAsync()
         {
             _logger.LogInformation("TimedBackgroundPriceService running.");
-
+            
             await _discordRestClient.LoginAsync(TokenType.Bot, _settings.BotToken);
             await _discordSocketClient.LoginAsync(TokenType.Bot, _settings.BotToken);
             await _discordSocketClient.StartAsync();
@@ -72,12 +87,18 @@ namespace DiscordCryptoSidebarBot
 
         private async Task DiscordSocketClientConnected()
         {
+            if (InGasMode)
+            {
+                await SetLogo("ethgas.png");
+                return;
+            }
+
             var coinInfo = await _client.CoinsClient.GetAllCoinDataWithId(_settings.ApiId);
 
-            await SetLogo(coinInfo);
+            await SetLogoFromCoinInfo(coinInfo);
         }
 
-        private async Task SetLogo(CoinFullDataById coinInfo)
+        private async Task SetLogoFromCoinInfo(CoinFullDataById coinInfo)
         {
             var fileName = coinInfo.Image.Large.Segments.Last();
 
@@ -86,7 +107,7 @@ namespace DiscordCryptoSidebarBot
                 Directory.CreateDirectory("images");
             }
 
-            var dir = Path.Combine("images", fileName);
+            var path = Path.Combine("images", fileName);
 
             //  Download Coin Logo
             using (var client = new HttpClient())
@@ -95,7 +116,7 @@ namespace DiscordCryptoSidebarBot
                 response.EnsureSuccessStatusCode();
                 var ms = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
 
-                var fs = File.Create(dir);
+                var fs = File.Create(path);
 
                 ms.Seek(0, SeekOrigin.Begin);
                 ms.CopyTo(fs);
@@ -103,6 +124,11 @@ namespace DiscordCryptoSidebarBot
                 ms.Close();
             }
 
+            await SetLogo(path);
+        }
+
+        private async Task SetLogo(string dir)
+        {
             await _discordSocketClient.CurrentUser.ModifyAsync((p) =>
             {
                 p.Avatar = new Optional<Image?>(new Image(dir));
@@ -215,6 +241,20 @@ namespace DiscordCryptoSidebarBot
 
         private void DoWork(object? state)
         {
+            string nickname = string.Empty;
+            string playing = string.Empty;
+
+            if (InGasMode)
+            {
+                var gas = _ethGasService.GetGas().GetAwaiter().GetResult();
+
+                nickname = $"⚡{gas.Fastest / 10}🏃{gas.Fast / 10}";
+                playing = $"🚶{gas.Average / 10}🐢{gas.SafeLow / 10}";
+
+                UpdateDiscordInfo(nickname, playing);
+                return;
+            }
+
             if (_firstRun)
             {
                 var coinlist = _client.CoinsClient.GetCoinList().GetAwaiter().GetResult();
@@ -227,15 +267,10 @@ namespace DiscordCryptoSidebarBot
             var dollarValue = PriceToDollarValue(price, _settings.ApiId);
             var percentChange = PriceToChangeLast24Hr(price, _settings.ApiId);
 
-            var nickname = $"{_coinName} {RenderCurrency(dollarValue)} {RenderDirection(percentChange)}";
-            var playing = $"$ 24h: {RenderPercent(percentChange)}";
-
-            Console.WriteLine(nickname);
-            Console.WriteLine(playing);
+            nickname = $"{_coinName} {RenderCurrency(dollarValue)} {RenderDirection(percentChange)}";
+            playing = $"$ 24h: {RenderPercent(percentChange)}";
 
             UpdateDiscordInfo(nickname, playing);
-
-            _logger.LogInformation(nickname);
         }
 
         private void UpdateDiscordInfo(string nickname, string playing)
@@ -246,6 +281,9 @@ namespace DiscordCryptoSidebarBot
 
             activity.Name = playing;
             activity.Details = playing;
+
+            _logger.LogInformation($"{nickname} - {playing}");
+            Console.WriteLine($"{nickname} - {playing}");
 
             _discordSocketClient.SetActivityAsync(activity).Wait();
 
