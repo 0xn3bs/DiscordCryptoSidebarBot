@@ -241,36 +241,43 @@ namespace DiscordCryptoSidebarBot
 
         private void DoWork(object? state)
         {
-            string nickname = string.Empty;
-            string playing = string.Empty;
-
-            if (InGasMode)
+            try
             {
-                var gas = _ethGasService.GetGas().GetAwaiter().GetResult();
+                string nickname = string.Empty;
+                string playing = string.Empty;
 
-                nickname = $"⚡{gas.Fastest / 10}🏃{gas.Fast / 10}";
-                playing = $"🚶{gas.Average / 10}🐢{gas.SafeLow / 10}";
+                if (InGasMode)
+                {
+                    var gas = _ethGasService.GetGas().GetAwaiter().GetResult();
+
+                    nickname = $"⚡{gas.Fastest / 10}🏃{gas.Fast / 10}";
+                    playing = $"🚶{gas.Average / 10}🐢{gas.SafeLow / 10}";
+
+                    UpdateDiscordInfo(nickname, playing);
+                    return;
+                }
+
+                if (_firstRun)
+                {
+                    var coinlist = _client.CoinsClient.GetCoinList().GetAwaiter().GetResult();
+                    _coinName = GetCoinNameFromApiId(coinlist, _settings.ApiId);
+                    _firstRun = false;
+                }
+
+                var price = _client.SimpleClient.GetSimplePrice(new string[] { _settings.ApiId }, new string[] { "usd" }, false, false, true, false).GetAwaiter().GetResult();
+
+                var dollarValue = PriceToDollarValue(price, _settings.ApiId);
+                var percentChange = PriceToChangeLast24Hr(price, _settings.ApiId);
+
+                nickname = $"{_coinName} {RenderCurrency(dollarValue)} {RenderDirection(percentChange)}";
+                playing = $"$ 24h: {RenderPercent(percentChange)}";
 
                 UpdateDiscordInfo(nickname, playing);
-                return;
             }
-
-            if (_firstRun)
+            catch (Exception ex)
             {
-                var coinlist = _client.CoinsClient.GetCoinList().GetAwaiter().GetResult();
-                _coinName = GetCoinNameFromApiId(coinlist, _settings.ApiId);
-                _firstRun = false;
+                _logger.LogWarning(ex, "Error occured while attempting to update, skipping this pass...");
             }
-
-            var price = _client.SimpleClient.GetSimplePrice(new string[] { _settings.ApiId }, new string[] { "usd" }, false, false, true, false).GetAwaiter().GetResult();
-
-            var dollarValue = PriceToDollarValue(price, _settings.ApiId);
-            var percentChange = PriceToChangeLast24Hr(price, _settings.ApiId);
-
-            nickname = $"{_coinName} {RenderCurrency(dollarValue)} {RenderDirection(percentChange)}";
-            playing = $"$ 24h: {RenderPercent(percentChange)}";
-
-            UpdateDiscordInfo(nickname, playing);
         }
 
         private void UpdateDiscordInfo(string nickname, string playing)
