@@ -226,6 +226,11 @@ namespace DiscordCryptoSidebarBot
                 return string.Format("{0:C4}", value);
             }
 
+            if (hasDecimal && value >= 1000m)
+            {
+                return string.Format("{0:C0}", value);
+            }
+
             if (hasDecimal)
             {
                 return string.Format("{0:C}", value);
