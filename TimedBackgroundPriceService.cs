@@ -32,6 +32,7 @@ namespace DiscordCryptoSidebarBot
 
         private Timer _timer = null!;
 
+        private Dictionary<ulong, (ulong?, ulong?)> _guildToRoleIds;
         class PriceBotActivity : IActivity
         {
             public string Name { get; set; }
@@ -55,6 +56,8 @@ namespace DiscordCryptoSidebarBot
             _discordRestClient = discordRestClient;
             _discordSocketClient = discordSocketClient;
             _ethGasService = ethGasService;
+
+            _guildToRoleIds = new Dictionary<ulong, (ulong?, ulong?)>();
         }
 
         public Task StartAsync(CancellationToken stoppingToken)
@@ -96,6 +99,16 @@ namespace DiscordCryptoSidebarBot
             var coinInfo = await _client.CoinsClient.GetAllCoinDataWithId(_settings.ApiId);
 
             await SetLogoFromCoinInfo(coinInfo);
+
+            var guilds = _discordSocketClient.Guilds;
+
+            foreach(var guild in guilds)
+            {
+                var gainRoleId = guild.Roles.FirstOrDefault(x => x.Name.ToLowerInvariant() == _settings.GainRoleName.ToLowerInvariant())?.Id;
+                var lossRoleId = guild.Roles.FirstOrDefault(x => x.Name.ToLowerInvariant() == _settings.LossRoleName.ToLowerInvariant())?.Id;
+
+                _guildToRoleIds[guild.Id] = (gainRoleId, lossRoleId);
+            }
         }
 
         private async Task SetLogoFromCoinInfo(CoinFullDataById coinInfo)
@@ -246,6 +259,11 @@ namespace DiscordCryptoSidebarBot
 
         private void DoWork(object? state)
         {
+            Process().GetAwaiter().GetResult();
+        }
+
+        private async Task Process()
+        {
             try
             {
                 string nickname = string.Empty;
@@ -253,23 +271,23 @@ namespace DiscordCryptoSidebarBot
 
                 if (InGasMode)
                 {
-                    var gas = _ethGasService.GetGas().GetAwaiter().GetResult();
+                    var gas = await _ethGasService.GetGas();
 
                     nickname = $"⚡{gas.Fastest / 10}🏃{gas.Fast / 10}";
                     playing = $"🚶{gas.Average / 10}🐢{gas.SafeLow / 10}";
 
-                    UpdateDiscordInfo(nickname, playing);
+                    await UpdateDiscordInfo(nickname, playing, null);
                     return;
                 }
 
                 if (_firstRun)
                 {
-                    var coinlist = _client.CoinsClient.GetCoinList().GetAwaiter().GetResult();
+                    var coinlist = await _client.CoinsClient.GetCoinList();
                     _coinName = GetCoinNameFromApiId(coinlist, _settings.ApiId);
                     _firstRun = false;
                 }
 
-                var price = _client.SimpleClient.GetSimplePrice(new string[] { _settings.ApiId }, new string[] { "usd" }, false, false, true, false).GetAwaiter().GetResult();
+                var price = await _client.SimpleClient.GetSimplePrice(new string[] { _settings.ApiId }, new string[] { "usd" }, false, false, true, false);
 
                 var dollarValue = PriceToDollarValue(price, _settings.ApiId);
                 var percentChange = PriceToChangeLast24Hr(price, _settings.ApiId);
@@ -277,7 +295,7 @@ namespace DiscordCryptoSidebarBot
                 nickname = $"{_coinName} {RenderCurrency(dollarValue)} {RenderDirection(percentChange)}";
                 playing = $"$ 24h: {RenderPercent(percentChange)}";
 
-                UpdateDiscordInfo(nickname, playing);
+                await UpdateDiscordInfo(nickname, playing, percentChange);
             }
             catch (Exception ex)
             {
@@ -285,9 +303,16 @@ namespace DiscordCryptoSidebarBot
             }
         }
 
-        private void UpdateDiscordInfo(string nickname, string playing)
+        //private ulong? GetAssignRoleId(ulong guildId, decimal? percentChange)
+        //{
+        //    var roles = _guildToRoleIds[guildId];
+
+
+        //}
+
+        private async Task UpdateDiscordInfo(string nickname, string playing, decimal? percentChange)
         {
-            var guilds = _discordRestClient.GetGuildsAsync().GetAwaiter().GetResult();
+            var guilds = await _discordRestClient.GetGuildsAsync();
 
             var activity = new PriceBotActivity();
 
@@ -297,23 +322,72 @@ namespace DiscordCryptoSidebarBot
             _logger.LogInformation($"{nickname} - {playing}");
             Console.WriteLine($"{nickname} - {playing}");
 
-            _discordSocketClient.SetActivityAsync(activity).Wait();
+            await _discordSocketClient.SetActivityAsync(activity);
 
             foreach (var guild in guilds)
             {
-                var user = guild.GetCurrentUserAsync().GetAwaiter().GetResult();
+                var user = await guild.GetCurrentUserAsync();
+
+                await AssignGuildRoles(percentChange, user, guild.Id);
 
                 try
                 {
-                    user.ModifyAsync(x =>
+                    await user.ModifyAsync(x =>
                     {
                         x.Nickname = nickname;
-                    }).GetAwaiter().GetResult();
+                    });
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, null!, null!);
                     Console.Error.WriteLine(ex);
+                }
+            }
+        }
+
+        private async Task AssignGuildRoles(decimal? percentChange, RestGuildUser user, ulong guildId)
+        {
+            if (!_guildToRoleIds.ContainsKey(guildId))
+                return;
+
+            var roles = _guildToRoleIds[guildId];
+
+            var gainRoleId = roles.Item1;
+            var lossRoleId = roles.Item2;
+
+            if (gainRoleId != null && percentChange.HasValue)
+            {
+                if (percentChange.Value >= 0)
+                {
+                    if (!user.RoleIds.Contains(gainRoleId.Value))
+                    {
+                        await user.AddRoleAsync(gainRoleId.Value);
+                    }
+                }
+                else
+                {
+                    if (user.RoleIds.Contains(gainRoleId.Value))
+                    {
+                        await user.RemoveRoleAsync(gainRoleId.Value);
+                    }
+                }
+            }
+
+            if (lossRoleId != null && percentChange.HasValue)
+            {
+                if (percentChange.Value < 0)
+                {
+                    if (!user.RoleIds.Contains(lossRoleId.Value))
+                    {
+                        await user.AddRoleAsync(lossRoleId.Value);
+                    }
+                }
+                else
+                {
+                    if (user.RoleIds.Contains(lossRoleId.Value))
+                    {
+                        await user.RemoveRoleAsync(lossRoleId.Value);
+                    }
                 }
             }
         }
