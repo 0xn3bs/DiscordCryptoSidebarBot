@@ -303,13 +303,6 @@ namespace DiscordCryptoSidebarBot
             }
         }
 
-        //private ulong? GetAssignRoleId(ulong guildId, decimal? percentChange)
-        //{
-        //    var roles = _guildToRoleIds[guildId];
-
-
-        //}
-
         private async Task UpdateDiscordInfo(string nickname, string playing, decimal? percentChange)
         {
             var guilds = await _discordRestClient.GetGuildsAsync();
@@ -347,6 +340,9 @@ namespace DiscordCryptoSidebarBot
 
         private async Task AssignGuildRoles(decimal? percentChange, RestGuildUser user, ulong guildId)
         {
+            if (percentChange == null)
+                return;
+
             if (!_guildToRoleIds.ContainsKey(guildId))
                 return;
 
