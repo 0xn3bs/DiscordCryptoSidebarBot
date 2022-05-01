@@ -273,8 +273,8 @@ namespace DiscordCryptoSidebarBot
                 {
                     var gas = await _ethGasService.GetGas();
 
-                    nickname = $"⚡{gas.Fastest / 10}🏃{gas.Fast / 10}";
-                    playing = $"🚶{gas.Average / 10}🐢{gas.SafeLow / 10}";
+                    nickname = $"⚡{gas.Rapid}🏃{gas.Fast}";
+                    playing = $"🚶{gas.Standard}🐢{gas.Slow}";
 
                     await UpdateDiscordInfo(nickname, playing, null);
                     return;

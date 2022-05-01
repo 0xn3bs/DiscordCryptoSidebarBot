@@ -14,11 +14,11 @@ namespace DiscordCryptoSidebarBot
 
         public EthGasService(HttpClient httpClient) => _httpClient = httpClient;
 
-        public async Task<EthGasResponse> GetGas()
+        public async Task<Gas> GetGas()
         {
-            var response = await _httpClient.GetStringAsync("https://ethgasstation.info/json/ethgasAPI.json");
+            var response = await _httpClient.GetStringAsync("https://etherchain.org/api/gasnow");
             var ethGasResponse = JsonConvert.DeserializeObject<EthGasResponse>(response);
-            return ethGasResponse;
+            return ethGasResponse.Data;
         }
     }
 }
