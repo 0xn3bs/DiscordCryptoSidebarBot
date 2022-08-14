@@ -8,5 +8,7 @@
         public string BotToken { get; set; } = null!;
         public string? GainRoleName { get; set; } = "gain";
         public string? LossRoleName { get; set; } = "loss";
+        public string? CustomEndpoint { get; set; } = null!;
+        public string? CustomTicker { get; set; } = null!;
     }
 }

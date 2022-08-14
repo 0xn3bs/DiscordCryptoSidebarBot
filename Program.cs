@@ -42,6 +42,8 @@ namespace DiscordCryptoSidebarBot // Note: actual namespace depends on the proje
                         .AddSingleton<ICoinGeckoClient>(CoinGeckoClient.Instance)
                         .AddHostedService<TimedBackgroundPriceService>()
                         .AddHttpClient<EthGasService>();
+
+                services.AddHttpClient<CustomApiService>();
             });
         }
     }

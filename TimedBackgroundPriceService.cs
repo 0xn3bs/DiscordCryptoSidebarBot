@@ -27,6 +27,7 @@ namespace DiscordCryptoSidebarBot
         private DiscordRestClient _discordRestClient = null!;
         private DiscordSocketClient _discordSocketClient = null!;
         private EthGasService _ethGasService = null!;
+        private CustomApiService _customApiService = null!;
         private string _coinName = null!;
         private bool _firstRun = true;
 
@@ -48,7 +49,8 @@ namespace DiscordCryptoSidebarBot
             ICoinGeckoClient client, 
             DiscordRestClient discordRestClient,
             DiscordSocketClient discordSocketClient,
-            EthGasService ethGasService)
+            EthGasService ethGasService,
+            CustomApiService customApiService)
         {
             _logger = logger;
             _settings = settings.Value;
@@ -56,6 +58,7 @@ namespace DiscordCryptoSidebarBot
             _discordRestClient = discordRestClient;
             _discordSocketClient = discordSocketClient;
             _ethGasService = ethGasService;
+            _customApiService = customApiService;
 
             _guildToRoleIds = new Dictionary<ulong, (ulong?, ulong?)>();
         }
@@ -70,7 +73,23 @@ namespace DiscordCryptoSidebarBot
         { 
             get
             {
-                return _settings.ApiId.ToLowerInvariant() == "ethgas";
+                return _settings.ApiId?.ToLowerInvariant() == "ethgas";
+            }
+        }
+
+        private bool InCustomApiMode
+        {
+            get
+            {
+                return !string.IsNullOrWhiteSpace(_settings.CustomEndpoint);
+            }
+        }
+
+        private bool HasCustomTicker
+        {
+            get
+            {
+                return !string.IsNullOrWhiteSpace(_settings.CustomTicker);
             }
         }
 
@@ -93,6 +112,11 @@ namespace DiscordCryptoSidebarBot
             if (InGasMode)
             {
                 await SetLogo("ethgas.png");
+                return;
+            }
+
+            if (InCustomApiMode)
+            {
                 return;
             }
 
@@ -282,18 +306,39 @@ namespace DiscordCryptoSidebarBot
 
                 if (_firstRun)
                 {
-                    var coinlist = await _client.CoinsClient.GetCoinList();
-                    _coinName = GetCoinNameFromApiId(coinlist, _settings.ApiId);
+                    if (!HasCustomTicker)
+                    {
+                        var coinlist = await _client.CoinsClient.GetCoinList();
+                        _coinName = GetCoinNameFromApiId(coinlist, _settings.ApiId);
+                    }
+                    else
+                    {
+                        _coinName = _settings.CustomTicker;
+                    }
+
                     _firstRun = false;
                 }
 
-                var price = await _client.SimpleClient.GetSimplePrice(new string[] { _settings.ApiId }, new string[] { "usd" }, false, false, true, false);
+                decimal? dollarValue = null;
+                decimal? percentChange = null;
 
-                var dollarValue = PriceToDollarValue(price, _settings.ApiId);
-                var percentChange = PriceToChangeLast24Hr(price, _settings.ApiId);
+                if (!InCustomApiMode)
+                {
+                    var price = await _client.SimpleClient.GetSimplePrice(new string[] { _settings.ApiId }, new string[] { "usd" }, false, false, true, false);
+                    dollarValue = PriceToDollarValue(price, _settings.ApiId);
+                    percentChange = PriceToChangeLast24Hr(price, _settings.ApiId);
+                }
+                else
+                {
+                    dollarValue = await _customApiService.GetPrice();
+                }
 
                 nickname = $"{_coinName} {RenderCurrency(dollarValue)} {RenderDirection(percentChange)}";
-                playing = $"$ 24h: {RenderPercent(percentChange)}";
+
+                if (percentChange != null)
+                {
+                    playing = $"$ 24h: {RenderPercent(percentChange)}";
+                }
 
                 await UpdateDiscordInfo(nickname, playing, percentChange);
             }
