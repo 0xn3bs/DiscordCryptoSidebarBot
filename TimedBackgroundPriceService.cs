@@ -93,6 +93,22 @@ namespace DiscordCryptoSidebarBot
             }
         }
 
+        private bool HasCustomAvatar
+        {
+            get
+            {
+                return !string.IsNullOrWhiteSpace(_settings.CustomAvatar);
+            }
+        }
+
+        private bool HasCustomEmoji
+        {
+            get
+            {
+                return !string.IsNullOrWhiteSpace(_settings.CustomEmoji);
+            }
+        }
+
         private async Task ExecuteAsync()
         {
             _logger.LogInformation("TimedBackgroundPriceService running.");
@@ -120,9 +136,24 @@ namespace DiscordCryptoSidebarBot
                 return;
             }
 
-            var coinInfo = await _client.CoinsClient.GetAllCoinDataWithId(_settings.ApiId);
 
-            await SetLogoFromCoinInfo(coinInfo);
+            if (HasCustomAvatar)
+            {
+                if (IsLocalPath(_settings.CustomAvatar))
+                {
+                    await SetLogo(_settings.CustomAvatar);
+                }
+                else
+                {
+                    var uri = new Uri(_settings.CustomAvatar);
+                    await SetLogoFromUri(uri);
+                }
+            }
+            else
+            {
+                var coinInfo = await _client.CoinsClient.GetAllCoinDataWithId(_settings.ApiId);
+                await SetLogoFromCoinInfo(coinInfo);
+            }
 
             var guilds = _discordSocketClient.Guilds;
 
@@ -135,9 +166,9 @@ namespace DiscordCryptoSidebarBot
             }
         }
 
-        private async Task SetLogoFromCoinInfo(CoinFullDataById coinInfo)
+        private async Task SetLogoFromUri(Uri url)
         {
-            var fileName = coinInfo.Image.Large.Segments.Last();
+            var fileName = url.Segments.Last();
 
             if (!Directory.Exists("images"))
             {
@@ -149,7 +180,7 @@ namespace DiscordCryptoSidebarBot
             //  Download Coin Logo
             using (var client = new HttpClient())
             {
-                var response = client.GetAsync(coinInfo.Image.Large).GetAwaiter().GetResult();
+                var response = client.GetAsync(url).GetAwaiter().GetResult();
                 response.EnsureSuccessStatusCode();
                 var ms = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
 
@@ -162,6 +193,11 @@ namespace DiscordCryptoSidebarBot
             }
 
             await SetLogo(path);
+        }
+
+        private async Task SetLogoFromCoinInfo(CoinFullDataById coinInfo)
+        {
+            await SetLogoFromUri(coinInfo.Image.Large);
         }
 
         private async Task SetLogo(string dir)
@@ -333,7 +369,14 @@ namespace DiscordCryptoSidebarBot
                     dollarValue = await _customApiService.GetPrice();
                 }
 
-                nickname = $"{_coinName} {RenderCurrency(dollarValue)} {RenderDirection(percentChange)}";
+                if (!HasCustomEmoji)
+                {
+                    nickname = $"{_coinName} {RenderCurrency(dollarValue)} {RenderDirection(percentChange)}";
+                }
+                else
+                {
+                    nickname = $"{_coinName} {RenderCurrency(dollarValue)} {_settings.CustomEmoji}";
+                }
 
                 if (percentChange != null)
                 {
@@ -431,6 +474,11 @@ namespace DiscordCryptoSidebarBot
                     }
                 }
             }
+        }
+
+        private static bool IsLocalPath(string p)
+        {
+            return new Uri(p).IsFile;
         }
 
         public Task StopAsync(CancellationToken stoppingToken)
