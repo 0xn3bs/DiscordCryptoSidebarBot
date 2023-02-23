@@ -403,13 +403,29 @@ namespace DiscordCryptoSidebarBot
             _logger.LogInformation($"{nickname} - {playing}");
             Console.WriteLine($"{nickname} - {playing}");
 
-            await _discordSocketClient.SetActivityAsync(activity);
+            try
+            {
+                await _discordSocketClient.SetActivityAsync(activity);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to set Discord Activity");
+                Console.Error.WriteLine($"Failed to set Discord Activity, {ex}");
+            }
 
             foreach (var guild in guilds)
             {
                 var user = await guild.GetCurrentUserAsync();
 
-                await AssignGuildRoles(percentChange, user, guild.Id);
+                try
+                {
+                    await AssignGuildRoles(percentChange, user, guild.Id);
+                }
+                catch(Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to set Discord Guild role in {guildid}", guild.Id);
+                    Console.Error.WriteLine($"Failed to set Guild role in {guild.Id}, {ex}");
+                }
 
                 try
                 {
@@ -420,8 +436,8 @@ namespace DiscordCryptoSidebarBot
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, null!, null!);
-                    Console.Error.WriteLine(ex);
+                    _logger.LogError(ex, "Failed to set Discord Nickname");
+                    Console.Error.WriteLine($"Failed to set Discord Nickname, {ex}");
                 }
             }
         }
