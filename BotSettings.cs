@@ -1,4 +1,6 @@
-﻿namespace DiscordCryptoSidebarBot
+﻿using System.IO;
+
+namespace DiscordCryptoSidebarBot
 {
     public class BotSettings
     {
@@ -12,5 +14,8 @@
         public string? CustomTicker { get; set; } = null!;
         public string? CustomEmoji { get; set; } = null!;
         public string? CustomAvatar { get; set; } = null!;
+        public string? ClusterPath { get; set; } = null!;
+        public bool? ClusterLeader { get; set; } = null!;
+        public string? ClusterName { get; set; } = null!;
     }
 }
