@@ -194,7 +194,6 @@ namespace DiscordCryptoSidebarBot
                 return;
             }
 
-
             if (HasCustomAvatar)
             {
                 if (IsLocalPath(_settings.CustomAvatar))
