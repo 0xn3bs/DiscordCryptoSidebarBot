@@ -16,6 +16,9 @@ using Discord;
 using System.Net;
 using System.Net.Http;
 using System.IO;
+using System.Text.Json.Serialization;
+using System.Text.Json;
+using System.Diagnostics;
 
 namespace DiscordCryptoSidebarBot
 {
@@ -44,9 +47,9 @@ namespace DiscordCryptoSidebarBot
             public string Details { get; set; }
         }
 
-        public TimedBackgroundPriceService(ILogger<TimedBackgroundPriceService> logger, 
-            IOptions<BotSettings> settings, 
-            ICoinGeckoClient client, 
+        public TimedBackgroundPriceService(ILogger<TimedBackgroundPriceService> logger,
+            IOptions<BotSettings> settings,
+            ICoinGeckoClient client,
             DiscordRestClient discordRestClient,
             DiscordSocketClient discordSocketClient,
             EthGasService ethGasService,
@@ -69,8 +72,8 @@ namespace DiscordCryptoSidebarBot
             return Task.CompletedTask;
         }
 
-        private bool InGasMode 
-        { 
+        private bool InGasMode
+        {
             get
             {
                 return _settings.ApiId?.ToLowerInvariant() == "ethgas";
@@ -109,10 +112,65 @@ namespace DiscordCryptoSidebarBot
             }
         }
 
+        private bool IsClustered
+        {
+            get
+            {
+                return !string.IsNullOrEmpty(_settings.ClusterPath) && !string.IsNullOrEmpty(_settings.ClusterName);
+            }
+        }
+
+        private string? ClusterFilename
+        {
+            get
+            {
+                return IsClustered ? Path.Combine(_settings.ClusterPath!, $"{_settings.ClusterName!}.bot") : null;
+            }
+        }
+
+        private string? ClusterSimplePriceFilename
+        {
+            get
+            {
+                return IsClustered ? Path.Combine(_settings.ClusterPath!, "simpleprice.json") : null;
+            }
+        }
+
+        private string? CoinlistFilename
+        {
+            get
+            {
+                return IsClustered ? Path.Combine(_settings.ClusterPath!, "coinlist.json") : null;
+            }
+        }
+
+        private bool IsClusterLeader
+        {
+            get
+            {
+                return IsClustered && _settings.ClusterLeader.HasValue && _settings.ClusterLeader.Value;
+            }
+        }
+
+        private async Task ConfigureCluster()
+        {
+            if (IsClustered)
+            {
+                Directory.CreateDirectory(_settings.ClusterPath!);
+
+                using (var f = File.Create(ClusterFilename!))
+                using (var s = new StreamWriter(f))
+                {
+                    await s.WriteAsync(_settings.ApiId);
+                }
+            }
+        }
+
         private async Task ExecuteAsync()
         {
             _logger.LogInformation("TimedBackgroundPriceService running.");
-            
+
+            await ConfigureCluster();
             await _discordRestClient.LoginAsync(TokenType.Bot, _settings.BotToken);
             await _discordSocketClient.LoginAsync(TokenType.Bot, _settings.BotToken);
             await _discordSocketClient.StartAsync();
@@ -157,7 +215,7 @@ namespace DiscordCryptoSidebarBot
 
             var guilds = _discordSocketClient.Guilds;
 
-            foreach(var guild in guilds)
+            foreach (var guild in guilds)
             {
                 var gainRoleId = guild.Roles.FirstOrDefault(x => x.Name.ToLowerInvariant() == _settings.GainRoleName.ToLowerInvariant())?.Id;
                 var lossRoleId = guild.Roles.FirstOrDefault(x => x.Name.ToLowerInvariant() == _settings.LossRoleName.ToLowerInvariant())?.Id;
@@ -208,24 +266,29 @@ namespace DiscordCryptoSidebarBot
             });
         }
 
-        private static decimal? GetValue(Price price, string apiId, string field)
+        private static decimal? GetValue(Price? price, string apiId, string field)
         {
             var dollars = string.Empty;
-            var p = price.FirstOrDefault(x => x.Key == apiId).Value.FirstOrDefault(x => x.Key == field).Value;
-            return p;
+            if (price != null)
+            {
+                var p = price.FirstOrDefault(x => x.Key == apiId).Value.FirstOrDefault(x => x.Key == field).Value;
+                return p;
+            }
+
+            return null;
         }
 
-        private static decimal? PriceToDollarValue(Price price, string apiId)
+        private static decimal? PriceToDollarValue(Price? price, string apiId)
         {
             return GetValue(price, apiId, "usd");
         }
 
-        private static decimal? PriceToChangeLast24Hr(Price price, string apiId)
+        private static decimal? PriceToChangeLast24Hr(Price? price, string apiId)
         {
             return GetValue(price, apiId, "usd_24h_change");
         }
 
-        private static string GetCoinNameFromApiId(IReadOnlyList<CoinList> coinList, string apiId) 
+        private static string GetCoinNameFromApiId(IReadOnlyList<CoinList> coinList, string apiId)
         {
             if (string.IsNullOrEmpty(apiId))
             {
@@ -279,7 +342,7 @@ namespace DiscordCryptoSidebarBot
             {
                 var dec = val.Split('.');
 
-                if(dec[0] == "0" || dec[0] == "00")
+                if (dec[0] == "0" || dec[0] == "00")
                 {
                     return false;
                 }
@@ -322,6 +385,73 @@ namespace DiscordCryptoSidebarBot
             Process().GetAwaiter().GetResult();
         }
 
+        private async Task<IReadOnlyList<CoinList>> GetCoinListAsync()
+        {
+            if (IsClusterLeader)
+            {
+                var coinlist = await _client.CoinsClient.GetCoinList();
+
+                using (var f = File.Create(CoinlistFilename!))
+                using (var s = new StreamWriter(f))
+                {
+                    await JsonSerializer.SerializeAsync(s.BaseStream, coinlist);
+                }
+
+                return coinlist;
+            }
+            else
+            {
+                using(var f = File.OpenRead(CoinlistFilename!))
+                using(var s = new StreamReader(f))
+                {
+                    var coinlist = (await JsonSerializer.DeserializeAsync<IReadOnlyList<CoinList>>(s.BaseStream))!;
+                    return coinlist;
+                }
+            }
+        }
+
+        private async Task<Price?> GetSimplePrice()
+        {
+            if (IsClusterLeader)
+            {
+                var price = await _client.SimpleClient.GetSimplePrice(ClusterApiIds, new string[] { "usd" }, false, false, true, false);
+
+                using (var f = File.Create(ClusterSimplePriceFilename))
+                using (var s = new StreamWriter(f))
+                {
+                    await JsonSerializer.SerializeAsync(s.BaseStream, price);
+                    return price;
+                }
+            }
+            else
+            {
+                using(var f = File.OpenRead(ClusterSimplePriceFilename))
+                using(var s = new StreamReader(f))
+                {
+                    var price = await JsonSerializer.DeserializeAsync<Price>(s.BaseStream);
+                    return price;
+                }
+            }
+        }
+
+        private string[] ClusterApiIds
+        {
+            get
+            {
+                var files = Directory.GetFiles(_settings.ClusterPath!, "*.bot", SearchOption.AllDirectories);
+
+                var apiIds = new List<string>();
+
+                foreach(var file in files)
+                {
+                    var coinId = File.ReadAllText(file);
+                    apiIds.Add(coinId);
+                }
+
+                return apiIds.ToArray();
+            }
+        }
+
         private async Task Process()
         {
             try
@@ -342,14 +472,16 @@ namespace DiscordCryptoSidebarBot
 
                 if (_firstRun)
                 {
+                    //  Cluster should grab coinlist and cache
+                    var coinlist = await GetCoinListAsync();
+
                     if (!HasCustomTicker)
                     {
-                        var coinlist = await _client.CoinsClient.GetCoinList();
                         _coinName = GetCoinNameFromApiId(coinlist, _settings.ApiId);
                     }
                     else
                     {
-                        _coinName = _settings.CustomTicker;
+                        _coinName = _settings.CustomTicker!;
                     }
 
                     _firstRun = false;
@@ -360,7 +492,7 @@ namespace DiscordCryptoSidebarBot
 
                 if (!InCustomApiMode)
                 {
-                    var price = await _client.SimpleClient.GetSimplePrice(new string[] { _settings.ApiId }, new string[] { "usd" }, false, false, true, false);
+                    var price = await GetSimplePrice()!;
                     dollarValue = PriceToDollarValue(price, _settings.ApiId);
                     percentChange = PriceToChangeLast24Hr(price, _settings.ApiId);
                 }
