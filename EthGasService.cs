@@ -16,7 +16,7 @@ namespace DiscordCryptoSidebarBot
 
         public async Task<Gas> GetGas()
         {
-            var response = await _httpClient.GetStringAsync("https://etherchain.org/api/gasnow");
+            var response = await _httpClient.GetStringAsync("https://beaconcha.in/api/v1/execution/gasnow");
             var ethGasResponse = JsonConvert.DeserializeObject<EthGasResponse>(response);
             return ethGasResponse.Data;
         }
